@@ -136,6 +136,17 @@ def main():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if message.get("recipes"):
+                with st.expander(f"📖 Inspect {len(message['recipes'])} Recipe Details (IDs, Ingredients & Steps)"):
+                    for r in message["recipes"]:
+                        st.markdown(f"#### {r['title']}")
+                        st.caption(f"Stable ID: `{r['id']}` | Source: `{r.get('source', 'N/A').upper()}`")
+                        st.markdown("**Ingredients:**")
+                        for ing in r.get('ingredients', []):
+                            st.markdown(f"- {ing}")
+                        st.markdown("**Instructions:**")
+                        st.text(r.get('instructions', ''))
+                        st.divider()
     
     # --- User Input ---
     if user_input := st.chat_input("Ask about recipes..."):
@@ -161,9 +172,27 @@ def main():
                 elapsed = time.time() - start_time
             
             st.markdown(response)
+            
+            # Show recipe cards if available for this turn
+            current_turn_recipes = list(memory.last_recipes[:5]) if memory.last_recipes else []
+            if current_turn_recipes and memory.last_intent in ("search", "ingredient_match", "followup"):
+                with st.expander(f"📖 Inspect {len(current_turn_recipes)} Recipe Details (IDs, Ingredients & Steps)"):
+                    for r in current_turn_recipes:
+                        st.markdown(f"#### {r['title']}")
+                        st.caption(f"Stable ID: `{r['id']}` | Source: `{r.get('source', 'N/A').upper()}`")
+                        st.markdown("**Ingredients:**")
+                        for ing in r.get('ingredients', []):
+                            st.markdown(f"- {ing}")
+                        st.markdown("**Instructions:**")
+                        st.text(r.get('instructions', ''))
+                        st.divider()
+            
             st.caption(f"⏱️ Response time: {elapsed:.2f}s")
         
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        msg_payload = {"role": "assistant", "content": response}
+        if current_turn_recipes and memory.last_intent in ("search", "ingredient_match", "followup"):
+            msg_payload["recipes"] = current_turn_recipes
+        st.session_state.messages.append(msg_payload)
 
 
 if __name__ == "__main__":
