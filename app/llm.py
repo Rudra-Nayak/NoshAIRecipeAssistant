@@ -84,7 +84,7 @@ Current user query: "{query}"
 
 Respond with a JSON object containing:
 {{
-    "intent": "search" | "analytics" | "ingredient_match" | "substitution" | "followup" | "general",
+    "intent": "search" | "analytics" | "ingredient_match" | "substitution" | "followup" | "greeting" | "general",
     "ingredients": ["list", "of", "ingredients mentioned"],
     "dietary_restrictions": ["list of dietary restrictions like vegetarian, vegan, gluten-free"],
     "search_terms": "key search terms extracted from query",

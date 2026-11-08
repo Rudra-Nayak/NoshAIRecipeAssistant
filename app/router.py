@@ -14,7 +14,7 @@ from typing import Optional
 from app.query_parser import (
     parse_query, classify_intent_deterministic,
     INTENT_SEARCH, INTENT_ANALYTICS, INTENT_INGREDIENT_MATCH,
-    INTENT_SUBSTITUTION, INTENT_FOLLOWUP, INTENT_GENERAL,
+    INTENT_SUBSTITUTION, INTENT_FOLLOWUP, INTENT_GREETING, INTENT_GENERAL,
 )
 from app.recipe_search import search_recipes
 from app.analytics import compute_analytics, filter_recipes
@@ -55,7 +55,15 @@ def route_query(
     memory.add_user_message(query)
     
     # --- Step 1: Parse query ---
-    # Try LLM parsing first for better intent understanding
+    # Fast check for conversational greetings / pleasantries
+    deterministic_intent = classify_intent_deterministic(query)
+    if deterministic_intent == INTENT_GREETING:
+        response = _handle_greeting(query)
+        memory.last_intent = INTENT_GREETING
+        memory.add_assistant_message(response)
+        return response
+
+    # Try LLM parsing for complex queries
     llm_parsed = None
     if llm.is_available():
         conversation_context = memory.get_chat_history_text(max_turns=3)
@@ -93,7 +101,10 @@ def route_query(
     # --- Step 3: Route to handler ---
     intent = parsed["intent"]
     
-    if intent == INTENT_ANALYTICS:
+    if intent == INTENT_GREETING:
+        response = _handle_greeting(query)
+
+    elif intent == INTENT_ANALYTICS:
         response = _handle_analytics(query, all_recipes, memory, parsed)
     
     elif intent == INTENT_INGREDIENT_MATCH:
@@ -138,6 +149,26 @@ def _infer_followup_intent(query: str, context: dict) -> str:
     
     # Default to search (operating on previous results)
     return INTENT_FOLLOWUP
+
+
+def _handle_greeting(query: str) -> str:
+    """Handle conversational greetings and pleasantries."""
+    query_lower = query.lower().strip()
+    if any(thx in query_lower for thx in ["thank", "thanks", "thx"]):
+        return (
+            "You're very welcome! Let me know if you need anything else—whether it's finding "
+            "another recipe, checking ingredient substitutions, or calculating cooking statistics!"
+        )
+    
+    return (
+        "Hello! 👋 I'm your Nosh Recipe Assistant. How can I help you in the kitchen today?\n\n"
+        "Here are a few things you can ask me:\n"
+        "- 🔍 **Search recipes**: *\"Find slow cooker beef recipes\"* or *\"Show me vegetarian pasta dishes\"*\n"
+        "- 🥘 **Cook with what you have**: *\"I have chicken, bell peppers, and soy sauce\"*\n"
+        "- 🔄 **Substitutions**: *\"Can I use Greek yogurt instead of sour cream?\"*\n"
+        "- 📊 **Dataset statistics**: *\"How many recipes are there?\"* or *\"What is the average number of ingredients?\"*\n\n"
+        "What would you like to cook today?"
+    )
 
 
 def _handle_search(

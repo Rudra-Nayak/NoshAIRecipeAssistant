@@ -16,7 +16,22 @@ INTENT_ANALYTICS = "analytics"
 INTENT_INGREDIENT_MATCH = "ingredient_match"
 INTENT_SUBSTITUTION = "substitution"
 INTENT_FOLLOWUP = "followup"
+INTENT_GREETING = "greeting"
 INTENT_GENERAL = "general"
+
+
+# --- Greeting / Conversational patterns ---
+_GREETING_EXACT = {
+    "hi", "hello", "hey", "hiya", "howdy", "hola", "yo",
+    "good morning", "good afternoon", "good evening", "good day",
+    "what's up", "whats up", "sup", "help", "who are you",
+    "what can you do", "thanks", "thank you", "thx", "bye", "goodbye"
+}
+
+_GREETING_PREFIXES = (
+    "hi ", "hello ", "hey ", "good morning ", "good afternoon ",
+    "good evening ", "who are you", "what can you do"
+)
 
 
 # --- Keyword patterns for deterministic intent classification ---
@@ -61,6 +76,14 @@ def classify_intent_deterministic(query: str) -> str:
     Returns:
         One of the INTENT_* constants.
     """
+    query_clean = query.lower().strip().strip('!?.,')
+    
+    # Check greeting / conversational opening
+    if query_clean in _GREETING_EXACT or query.lower().strip().startswith(_GREETING_PREFIXES):
+        # Only treat as greeting if it doesn't also contain explicit search/recipe keywords
+        if not any(k in query_clean for k in ["recipe", "cook", "make", "substitute", "ingredient"]):
+            return INTENT_GREETING
+    
     query_lower = query.lower().strip()
     
     # Check analytics first (most specific patterns)
