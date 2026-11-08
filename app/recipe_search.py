@@ -17,7 +17,7 @@ from typing import Optional
 from app.query_parser import parse_query, INTENT_SEARCH, INTENT_FOLLOWUP
 from app.hybrid_retrieval import hybrid_search
 from app.reranker import rerank_results
-from app.data_processor import normalize_ingredient_name
+from app.data_processor import normalize_ingredient_name, is_valid_recipe_record
 from app.dietary_filter import is_recipe_compliant, check_ambiguous_ingredients
 
 
@@ -252,6 +252,10 @@ def search_recipes(
     for recipe_id, score in fused_results:
         recipe = recipe_index.get(recipe_id)
         if recipe is None:
+            continue
+        
+        # Reject corrupt / placeholder non-culinary records
+        if not is_valid_recipe_record(recipe):
             continue
         
         # Apply deterministic dietary & cultural filters

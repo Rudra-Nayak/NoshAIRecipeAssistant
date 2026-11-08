@@ -11,10 +11,11 @@ Key features:
 - Explainable recommendation scores
 - Hard constraint enforcement (dietary, excluded ingredients)
 """
+import re
 from typing import Optional
 from collections import Counter
 
-from app.data_processor import normalize_ingredient_name
+from app.data_processor import normalize_ingredient_name, is_valid_recipe_record
 
 
 # --- Ingredient Equivalents ---
@@ -59,13 +60,23 @@ INGREDIENT_EQUIVALENTS = {
 }
 
 
+def _word_match(target: str, text: str) -> bool:
+    """Check if target exists in text respecting word boundaries."""
+    if not target or not text:
+        return False
+    pattern = r'(?:\b|_)' + re.escape(target.strip()) + r'(?:\b|_)'
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
+
 def normalize_and_match(
     user_ingredient: str,
     recipe_ingredient: str,
 ) -> bool:
     """Check if a user ingredient matches a recipe ingredient.
     
-    Uses normalization and the equivalents dictionary.
+    Uses normalization and the equivalents dictionary, matching tokens on
+    word boundaries to prevent false positives like 'butter' in 'butterflies'
+    or 'egg' in 'eggplant'.
     
     Args:
         user_ingredient: Normalized ingredient the user has.
@@ -74,16 +85,17 @@ def normalize_and_match(
     Returns:
         True if the ingredients match.
     """
+    user_norm = normalize_ingredient_name(user_ingredient)
     recipe_norm = normalize_ingredient_name(recipe_ingredient)
     
-    # Direct match
-    if user_ingredient in recipe_norm or recipe_norm in user_ingredient:
+    # Direct match on word boundaries
+    if _word_match(user_norm, recipe_norm) or _word_match(recipe_norm, user_norm):
         return True
     
     # Check equivalents
-    equivalents = INGREDIENT_EQUIVALENTS.get(user_ingredient, set())
+    equivalents = INGREDIENT_EQUIVALENTS.get(user_norm, set())
     for equiv in equivalents:
-        if equiv in recipe_norm or recipe_norm in equiv:
+        if _word_match(equiv, recipe_norm) or _word_match(recipe_norm, equiv):
             return True
     
     return False
@@ -178,6 +190,10 @@ def find_matching_recipes(
     results = []
     
     for recipe in recipes:
+        # Step 1.5: Validate that recipe is not corrupt / non-culinary dummy data
+        if not is_valid_recipe_record(recipe):
+            continue
+
         # Step 2: Compute match score
         match = compute_match_score(normalized_user, recipe)
         

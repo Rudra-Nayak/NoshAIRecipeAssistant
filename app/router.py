@@ -22,6 +22,7 @@ from app.recipe_search import search_recipes
 from app.analytics import compute_analytics, filter_recipes
 from app.ingredient_match import find_matching_recipes
 from app.substitution import find_substitution_evidence, generate_substitution_response
+from app.data_processor import is_valid_recipe_record
 from app.memory import ConversationMemory
 from app import llm
 
@@ -730,6 +731,47 @@ def _handle_followup(
                     f"I verified the complete ingredient list: **There is no coconut of any kind in this recipe.**\n\n"
                     f"Ingredients listed are: {', '.join(active_rec['ingredients'])}."
                 )
+
+    # Check if the user is asking about or selecting a specific recipe from previous results
+    selected_recipe = None
+    for r in previous_recipes:
+        t_clean = r.get("title", "").strip().lower()
+        if t_clean and (t_clean in query_lower or query_lower in t_clean):
+            selected_recipe = r
+            break
+            
+    if not selected_recipe:
+        import re
+        ord_map = {
+            "first": 0, "1st": 0, "1": 0, "#1": 0, "one": 0,
+            "second": 1, "2nd": 1, "2": 1, "#2": 1, "two": 1,
+            "third": 2, "3rd": 2, "3": 2, "#3": 2, "three": 2,
+            "fourth": 3, "4th": 3, "4": 3, "#4": 3, "four": 3,
+            "fifth": 4, "5th": 4, "5": 4, "#5": 4, "five": 4,
+        }
+        for token, idx in ord_map.items():
+            if re.search(r'(?:\b|_)' + re.escape(token) + r'(?:\b|_)', query_lower):
+                if idx < len(previous_recipes):
+                    selected_recipe = previous_recipes[idx]
+                    break
+
+    if selected_recipe:
+        if not is_valid_recipe_record(selected_recipe):
+            return (
+                f"⚠️ **Dataset Limitation for '{selected_recipe['title']}' (`{selected_recipe['id']}`)**:\n\n"
+                f"This record in the database is an incomplete or non-culinary placeholder that lacks "
+                f"usable cooking instructions and ingredient quantities.\n\n"
+                f"Would you like me to guide you through one of the other recipes from your results instead?"
+            )
+            
+        memory.set_current_dish(selected_recipe["title"], selected_recipe["id"])
+        conversation_history = memory.get_chat_history_text(max_turns=3)
+        return llm.generate_cooking_guide(
+            query=query,
+            recipe=selected_recipe,
+            context={"dish": selected_recipe["title"]},
+            conversation_history=conversation_history,
+        )
 
     # General follow-up — pass previous results as context
     return llm.generate_response(

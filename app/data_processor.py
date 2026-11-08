@@ -213,3 +213,37 @@ def compute_dataset_stats(recipes: list[dict]) -> dict:
     
     return stats
 
+
+def is_valid_recipe_record(recipe: dict) -> bool:
+    """Validate that a recipe record is not degenerate, corrupt, or non-culinary dummy data.
+    
+    Filters out non-recipes such as crafts ('Friendship Butterflies'),
+    placeholders ('no recipes available', 'Title'), or entries lacking instructions.
+    """
+    if not recipe or not isinstance(recipe, dict):
+        return False
+    title = recipe.get("title", "").strip().lower()
+    instructions = recipe.get("instructions", "").strip()
+    ingredients = recipe.get("ingredients", [])
+    
+    if not title or not ingredients:
+        return False
+        
+    # Check for placeholder / corrupt titles
+    if title in ["no recipes available", "title", "copyright", "untitled"]:
+        return False
+        
+    # Single ingredient identical to title (e.g. 'Friendship Butterflies', 'Floppy Flowers')
+    if len(ingredients) == 1 and ingredients[0].strip().lower() == title:
+        return False
+        
+    # Instructions identical to title or trivial
+    if instructions.lower() == title:
+        return False
+    if len(instructions) < 15 and title in instructions.lower():
+        return False
+    if instructions in [";", ".", "-", "none"]:
+        return False
+        
+    return True
+
