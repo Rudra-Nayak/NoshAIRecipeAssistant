@@ -94,6 +94,17 @@ def _check_dish_distinctions(recipe: dict, query_lower: str) -> bool:
     title_lower = recipe.get("title", "").lower()
     recipe_text = (" " + " ".join(recipe.get("ingredients", []))).lower()
     
+    # Distinction 0: Kheer queries must match actual kheer, payasam, or rice pudding dishes
+    if "kheer" in query_lower:
+        is_kheer = (
+            "kheer" in title_lower 
+            or "payasam" in title_lower 
+            or "rice pudding" in title_lower
+            or "kheer" in recipe_text
+        )
+        if not is_kheer:
+            return False
+
     # Distinction 1: Rice Kheer vs Vermicelli Kheer
     if "rice kheer" in query_lower or "chawal kheer" in query_lower or ("rice" in query_lower and "kheer" in query_lower):
         # Must contain rice in ingredients
@@ -108,6 +119,39 @@ def _check_dish_distinctions(recipe: dict, query_lower: str) -> bool:
             return False
 
     return True
+
+
+def extract_clean_search_query(query: str) -> str:
+    """Strip conversational filler, intent triggers, and stop-phrases to leave the core dish / ingredient keywords."""
+    import re
+    q = query.lower().strip()
+    
+    prefixes = [
+        r"^(?:how\s+do\s+i\s+make|how\s+do\s+i\s+prepare|how\s+to\s+make|how\s+to\s+cook|how\s+to\s+prepare)\s+",
+        r"^(?:can\s+you\s+guide\s+me\s+to\s+make|can\s+you\s+guide\s+me\s+on\s+how\s+to\s+make|guide\s+me\s+through\s+the\s+recipe\s+for|guide\s+me\s+through|guide\s+me\s+to\s+make)\s+",
+        r"^(?:give\s+me\s+step\s+by\s+step\s+instructions\s+for|give\s+me\s+instructions\s+for|give\s+me\s+recipe\s+for)\s+",
+        r"^(?:find\s+recipes\s+for|find\s+recipe\s+for|search\s+for\s+recipes\s+for|search\s+for\s+recipe\s+for|show\s+me\s+recipes\s+for|show\s+me\s+recipe\s+for|find\s+me\s+recipes\s+for|find\s+me\s+a\s+recipe\s+for|find\s+recipes\s+with)\s+",
+        r"^(?:tell\s+me\s+how\s+to\s+make|explain\s+how\s+to\s+make|explain\s+the\s+cooking\s+process\s+for)\s+",
+        r"^(?:i\s+want\s+to\s+make|i\s+want\s+to\s+cook|i\s+would\s+like\s+to\s+make|i\s+would\s+like\s+to\s+cook)\s+",
+    ]
+    for p in prefixes:
+        q = re.sub(p, "", q).strip()
+        
+    suffixes = [
+        r"\s+step\s+by\s+step\??$",
+        r"\s+step-by-step\??$",
+        r"\s+for\s+diwali\??$",
+        r"\s+for\s+dinner\??$",
+        r"\s+for\s+lunch\??$",
+        r"\s+for\s+breakfast\??$",
+        r"\s+for\s+dessert\??$",
+        r"\s+recipes?\??$",
+    ]
+    for s in suffixes:
+        q = re.sub(s, "", q).strip()
+        
+    q = re.sub(r"^(?:traditional|authentic|classic|delicious|easy|simple|best)\s+", "", q).strip()
+    return q if q else query
 
 
 def search_recipes(
@@ -164,15 +208,29 @@ def search_recipes(
     if parsed_query.get("missing_ingredients"):
         all_exclusions.extend(parsed_query["missing_ingredients"])
     
+    # Clean conversational wrappers to extract the core culinary terms
+    search_query = extract_clean_search_query(query)
+    
     # Step 2-3: Hybrid retrieval with RRF
     fused_results = hybrid_search(
-        query=query,
+        query=search_query,
         bm25_retriever=bm25_retriever,
         faiss_retriever=faiss_retriever,
         top_k=35,
         bm25_top_k=45,
         faiss_top_k=45,
     )
+    
+    # Fallback to raw query if cleaned query yielded no results
+    if not fused_results and search_query != query:
+        fused_results = hybrid_search(
+            query=query,
+            bm25_retriever=bm25_retriever,
+            faiss_retriever=faiss_retriever,
+            top_k=35,
+            bm25_top_k=45,
+            faiss_top_k=45,
+        )
     
     total_candidates = len(fused_results)
     

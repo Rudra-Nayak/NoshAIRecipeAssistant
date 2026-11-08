@@ -13,6 +13,16 @@ from rank_bm25 import BM25Okapi
 from typing import Optional
 
 
+# Conversational and general stop words that dilute specific culinary keywords in BM25
+SEARCH_STOP_WORDS = {
+    "how", "do", "i", "can", "you", "we", "me", "make", "cook", "prepare", "get", "give", "show",
+    "find", "search", "recipe", "recipes", "step", "by", "steps", "a", "an", "the", "in", "on", "at",
+    "to", "for", "of", "with", "from", "and", "or", "is", "are", "was", "were", "it", "this", "that",
+    "these", "those", "my", "your", "our", "their", "please", "help", "guide", "explain", "instructions",
+    "traditional", "authentic", "classic", "diwali"
+}
+
+
 def tokenize(text: str) -> list[str]:
     """Simple whitespace + lowercase tokenizer.
     
@@ -69,6 +79,11 @@ class BM25Retriever:
         
         if not query_tokens:
             return []
+        
+        # Filter common English conversational search stop words that dilute specific culinary keywords
+        filtered_tokens = [t for t in query_tokens if t not in SEARCH_STOP_WORDS]
+        if filtered_tokens:
+            query_tokens = filtered_tokens
         
         scores = self.bm25.get_scores(query_tokens)
         
