@@ -22,6 +22,12 @@ from app.semantic_retrieval import build_faiss_index
 
 def main():
     """Build the FAISS index."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Build FAISS vector index")
+    parser.add_argument("--limit", type=int, default=1000,
+                        help="Number of recipes to embed (default: 1000 for quick build, 0 for all)")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("FAISS Index Builder - Nosh Recipe Chatbot")
     print("=" * 60)
@@ -29,7 +35,11 @@ def main():
     # Load recipes
     print("\n[1/3] Loading recipes...")
     recipes = get_recipes()
-    print(f"  Loaded {len(recipes)} recipes")
+    if args.limit and args.limit > 0:
+        recipes = recipes[:args.limit]
+        print(f"  Using subset of {len(recipes)} recipes for FAISS vector index")
+    else:
+        print(f"  Loaded {len(recipes)} recipes (full dataset)")
     
     # Build search texts
     print("\n[2/3] Building search texts...")
@@ -38,7 +48,7 @@ def main():
     print(f"  Built {len(search_texts)} search texts")
     
     # Build FAISS index
-    print("\n[3/3] Building FAISS index (this may take a while)...")
+    print(f"\n[3/3] Building FAISS index with {len(search_texts)} recipes...")
     start = time.time()
     success = build_faiss_index(search_texts, recipe_ids)
     elapsed = time.time() - start

@@ -50,7 +50,7 @@ def _get_client():
 
 def get_model_name() -> str:
     """Get the configured Gemini model name."""
-    return os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 
 def is_available() -> bool:

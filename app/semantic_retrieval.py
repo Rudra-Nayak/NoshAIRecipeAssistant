@@ -31,18 +31,18 @@ def _get_faiss():
 
 # --- Constants ---
 
-VECTOR_STORE_DIR = Path("vector_store")
+VECTOR_STORE_DIR = Path(__file__).resolve().parent.parent / "vector_store"
 FAISS_INDEX_FILE = VECTOR_STORE_DIR / "recipe_index.faiss"
 METADATA_FILE = VECTOR_STORE_DIR / "recipe_metadata.pkl"
 
-# Embedding dimension for text-embedding-004
-EMBEDDING_DIM = 768
+# Embedding dimension for models/gemini-embedding-001
+EMBEDDING_DIM = 3072
 
 # Batch size for embedding generation (API rate limiting)
 EMBEDDING_BATCH_SIZE = 100
 
 
-def generate_embeddings_batch(texts: list[str], model_name: str = "models/text-embedding-004") -> Optional[np.ndarray]:
+def generate_embeddings_batch(texts: list[str], model_name: str = "models/gemini-embedding-001") -> Optional[np.ndarray]:
     """Generate embeddings for a batch of texts using Gemini API.
     
     Args:
@@ -65,16 +65,30 @@ def generate_embeddings_batch(texts: list[str], model_name: str = "models/text-e
         client = genai.Client(api_key=api_key)
         
         embeddings = []
+        import time
         for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
             batch = texts[i:i + EMBEDDING_BATCH_SIZE]
-            result = client.models.embed_content(
-                model=model_name,
-                contents=batch,
-            )
-            for embedding in result.embeddings:
-                embeddings.append(embedding.values)
             
-            if (i + EMBEDDING_BATCH_SIZE) % 1000 == 0:
+            # Retry with exponential backoff for rate limits
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    result = client.models.embed_content(
+                        model=model_name,
+                        contents=batch,
+                    )
+                    for embedding in result.embeddings:
+                        embeddings.append(embedding.values)
+                    break
+                except Exception as batch_err:
+                    if "429" in str(batch_err) and attempt < max_retries - 1:
+                        wait_sec = 2 ** (attempt + 1) * 5
+                        print(f"    Rate limit reached. Waiting {wait_sec}s before retry...")
+                        time.sleep(wait_sec)
+                    else:
+                        raise batch_err
+            
+            if (i + EMBEDDING_BATCH_SIZE) % 500 == 0:
                 print(f"    Embedded {min(i + EMBEDDING_BATCH_SIZE, len(texts))}/{len(texts)} texts...")
         
         return np.array(embeddings, dtype=np.float32)
