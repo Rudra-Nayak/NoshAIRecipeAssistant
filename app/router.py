@@ -14,7 +14,9 @@ from typing import Optional
 from app.query_parser import (
     parse_query, classify_intent_deterministic,
     INTENT_SEARCH, INTENT_ANALYTICS, INTENT_INGREDIENT_MATCH,
-    INTENT_SUBSTITUTION, INTENT_FOLLOWUP, INTENT_GREETING, INTENT_GENERAL,
+    INTENT_SUBSTITUTION, INTENT_FOLLOWUP, INTENT_GREETING,
+    INTENT_COOKING_GUIDANCE, INTENT_CONTEXTUAL_MOD, INTENT_DIETARY_UPDATE,
+    INTENT_GENERAL,
 )
 from app.recipe_search import search_recipes
 from app.analytics import compute_analytics, filter_recipes
@@ -104,6 +106,17 @@ def route_query(
     if intent == INTENT_GREETING:
         response = _handle_greeting(query)
 
+    elif intent == INTENT_COOKING_GUIDANCE:
+        response = _handle_cooking_guidance(query, bm25_retriever, faiss_retriever,
+                                            recipe_index, all_recipes, memory, parsed)
+
+    elif intent == INTENT_CONTEXTUAL_MOD:
+        response = _handle_contextual_mod(query, bm25_retriever, faiss_retriever,
+                                          recipe_index, all_recipes, memory, parsed)
+
+    elif intent == INTENT_DIETARY_UPDATE:
+        response = _handle_dietary_update(query, memory, parsed)
+
     elif intent == INTENT_ANALYTICS:
         response = _handle_analytics(query, all_recipes, memory, parsed)
     
@@ -163,12 +176,169 @@ def _handle_greeting(query: str) -> str:
     return (
         "Hello! 👋 I'm your Nosh Recipe Assistant. How can I help you in the kitchen today?\n\n"
         "Here are a few things you can ask me:\n"
-        "- 🔍 **Search recipes**: *\"Find slow cooker beef recipes\"* or *\"Show me vegetarian pasta dishes\"*\n"
+        "- 🔍 **Search recipes**: *\"Find Chicken Tikka recipes\"* or *\"Show me pasta recipes\"*\n"
         "- 🥘 **Cook with what you have**: *\"I have chicken, bell peppers, and soy sauce\"*\n"
         "- 🔄 **Substitutions**: *\"Can I use Greek yogurt instead of sour cream?\"*\n"
         "- 📊 **Dataset statistics**: *\"How many recipes are there?\"* or *\"What is the average number of ingredients?\"*\n\n"
         "What would you like to cook today?"
     )
+
+
+def _handle_cooking_guidance(
+    query: str,
+    bm25_retriever,
+    faiss_retriever,
+    recipe_index: dict,
+    all_recipes: list[dict],
+    memory: ConversationMemory,
+    parsed: dict,
+) -> str:
+    """Handle structured, beginner-friendly step-by-step cooking guide requests."""
+    # Determine the target recipe:
+    target_recipe = None
+    
+    # If the user specifically mentions a dish in the query, search for it
+    query_lower = query.lower()
+    dish_indicators = ["kheer", "payasam", "curry", "pasta", "cookie", "cake", "soup", "stew", "bread"]
+    has_specific_dish = any(d in query_lower for d in dish_indicators) or len(query.split()) > 4
+    
+    if has_specific_dish:
+        # Search for best candidate
+        search_res = search_recipes(
+            query=query,
+            bm25_retriever=bm25_retriever,
+            faiss_retriever=faiss_retriever,
+            recipe_index=recipe_index,
+            parsed_query=parsed,
+            top_k=3,
+            region=memory.region,
+            custom_exclusions=memory.excluded_ingredients,
+        )
+        if search_res["recipes"]:
+            target_recipe = search_res["recipes"][0]
+            memory.update_search_results(
+                query=query,
+                intent=INTENT_COOKING_GUIDANCE,
+                recipe_ids=search_res["recipe_ids"],
+                recipes=search_res["recipes"],
+            )
+
+    # Fallback to previously discussed active recipe
+    if not target_recipe and memory.last_recipes:
+        target_recipe = memory.last_recipes[0]
+        
+    if not target_recipe:
+        # No recipe available or found
+        return (
+            "I couldn't find a matching recipe in the dataset to guide you through. "
+            "Could you please specify the name of the dish you'd like to prepare (e.g. *'How do I make Rice Kheer?'*)?"
+        )
+        
+    memory.set_current_dish(target_recipe["title"], target_recipe["id"])
+    conversation_history = memory.get_chat_history_text(max_turns=3)
+    
+    return llm.generate_cooking_guide(
+        query=query,
+        recipe=target_recipe,
+        context={"dish": target_recipe["title"]},
+        conversation_history=conversation_history,
+    )
+
+
+def _handle_contextual_mod(
+    query: str,
+    bm25_retriever,
+    faiss_retriever,
+    recipe_index: dict,
+    all_recipes: list[dict],
+    memory: ConversationMemory,
+    parsed: dict,
+) -> str:
+    """Handle ingredient omission ('I don't have coconut milk') while preserving dish intent."""
+    missing = parsed.get("missing_ingredients", [])
+    for m in missing:
+        memory.add_excluded_ingredient(m)
+        
+    query_lower = query.lower()
+    
+    # Determine target dish: explicitly mentioned in query or preserved in memory
+    target_dish = ""
+    for kw in ["payasam", "kheer", "curry", "soup", "pasta", "cake", "pudding", "rice"]:
+        if kw in query_lower:
+            target_dish = kw
+            break
+            
+    if not target_dish and memory.current_dish:
+        target_dish = memory.current_dish
+    elif not target_dish and memory.last_recipes:
+        target_dish = memory.last_recipes[0]["title"]
+        
+    if not target_dish:
+        target_dish = "dessert"
+        
+    # Search for alternative recipe without the excluded ingredients
+    search_query = f"{target_dish}"
+    search_res = search_recipes(
+        query=search_query,
+        bm25_retriever=bm25_retriever,
+        faiss_retriever=faiss_retriever,
+        recipe_index=recipe_index,
+        parsed_query=parsed,
+        top_k=3,
+        region=memory.region,
+        custom_exclusions=memory.excluded_ingredients,
+    )
+    
+    missing_str = ", ".join(memory.excluded_ingredients) if memory.excluded_ingredients else "that ingredient"
+    
+    if search_res["recipes"]:
+        memory.update_search_results(
+            query=query,
+            intent=INTENT_CONTEXTUAL_MOD,
+            recipe_ids=search_res["recipe_ids"],
+            recipes=search_res["recipes"],
+        )
+        
+        lines = [
+            f"Understood! Since you don't have **{missing_str}**, I preserved your goal to prepare {target_dish.title()} "
+            f"and found recipes that do not require it:\n"
+        ]
+        for i, r in enumerate(search_res["recipes"], 1):
+            lines.append(f"**{i}. 🍲 {r['title']}** (ID: `{r['id']}`)")
+            lines.append(f"   Ingredients: {', '.join(r['ingredients'][:5])}...")
+            lines.append(f"   *Instructions overview:* {r['instructions'][:140].replace(chr(10), ' ')}...")
+            lines.append("")
+        lines.append("💡 *Would you like me to guide you step-by-step through any of these?*")
+        return "\n".join(lines)
+    else:
+        return (
+            f"I noted that you don't have {missing_str}. However, I could not find a {target_dish} recipe "
+            f"in our dataset completely free of those ingredients. Would you like to explore alternative substitutions?"
+        )
+
+
+def _handle_dietary_update(query: str, memory: ConversationMemory, parsed: dict) -> str:
+    """Handle explicit user statements about dietary preferences or regions."""
+    dietary = parsed.get("dietary_restrictions", [])
+    for d in dietary:
+        if d not in memory.dietary_restrictions:
+            memory.dietary_restrictions.append(d)
+            
+    query_lower = query.lower()
+    if "region to india" in query_lower:
+        memory.set_region("India")
+        return "✅ Region preference set to **India 🇮🇳**. Default beef-exclusion and cultural guidelines are now active."
+    elif "region to global" in query_lower:
+        memory.set_region("Global")
+        return "✅ Region preference set to **Global 🌐**."
+        
+    if memory.dietary_restrictions:
+        prefs_str = ", ".join(memory.dietary_restrictions)
+        return (
+            f"✅ Got it! I've updated your dietary preferences to: **{prefs_str}**.\n"
+            f"All upcoming recipe searches and recommendations will deterministically respect these restrictions."
+        )
+    return "I've noted your dietary preferences!"
 
 
 def _handle_search(
@@ -179,7 +349,7 @@ def _handle_search(
     memory: ConversationMemory,
     parsed: dict,
 ) -> str:
-    """Handle a recipe search query."""
+    """Handle a recipe search query with region and custom exclusions."""
     result = search_recipes(
         query=query,
         bm25_retriever=bm25_retriever,
@@ -187,6 +357,8 @@ def _handle_search(
         recipe_index=recipe_index,
         parsed_query=parsed,
         top_k=5,
+        region=memory.region,
+        custom_exclusions=memory.excluded_ingredients,
     )
     
     # Update memory
@@ -449,6 +621,37 @@ def _handle_followup(
             return llm.generate_response(query, [best], context_dict,
                                           memory.get_chat_history_text(3))
     
+    # Check if this is an ingredient inspection question (e.g. 'Does this recipe contain coconut?')
+    if any(q in query_lower for q in ["contain coconut", "has coconut", "have coconut", "use coconut", "is there coconut"]) or "contain" in query_lower:
+        active_rec = previous_recipes[0]
+        ing_text = " ".join(active_rec.get("ingredients", [])).lower()
+        
+        has_coconut_milk = "coconut milk" in ing_text or "coconut cream" in ing_text
+        has_coconut_flakes = "coconut flake" in ing_text or "shredded coconut" in ing_text or "flaked coconut" in ing_text or "desiccated coconut" in ing_text
+        has_any_coconut = "coconut" in ing_text
+        
+        if "coconut" in query_lower:
+            if has_coconut_flakes and not has_coconut_milk:
+                matching_lines = [i for i in active_rec["ingredients"] if "coconut" in i.lower()]
+                return (
+                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'** (ID: `{active_rec['id']}`):\n\n"
+                    f"- This recipe contains: **{', '.join(matching_lines)}**.\n"
+                    f"- **Important Distinction**: It uses **coconut flakes/shredded coconut**, but **does NOT contain coconut milk**.\n\n"
+                    f"Coconut flakes add dry texture and sweetness, whereas coconut milk provides liquid creaminess. "
+                    f"If you need a recipe that is completely coconut-free, just let me know!"
+                )
+            elif has_coconut_milk:
+                matching_lines = [i for i in active_rec["ingredients"] if "coconut" in i.lower()]
+                return (
+                    f"🔍 Yes, **'{active_rec['title']}'** (ID: `{active_rec['id']}`) contains **{', '.join(matching_lines)}**."
+                )
+            elif not has_any_coconut:
+                return (
+                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'** (ID: `{active_rec['id']}`):\n\n"
+                    f"I verified the complete ingredient list: **There is no coconut of any kind in this recipe.**\n\n"
+                    f"Ingredients listed are: {', '.join(active_rec['ingredients'])}."
+                )
+
     # General follow-up — pass previous results as context
     return llm.generate_response(
         query=query,

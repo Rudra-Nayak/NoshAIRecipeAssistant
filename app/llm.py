@@ -207,6 +207,159 @@ Respond naturally to the user's question:"""
         return _fallback_response(query, recipes, context)
 
 
+def generate_cooking_guide(
+    query: str,
+    recipe: dict,
+    context: dict = None,
+    conversation_history: str = "",
+) -> str:
+    """Generate a beginner-friendly, grounded, 13-point detailed cooking guide for a recipe.
+    
+    Preserves all original ingredients, quantities, and cooking sequence, but expands
+    vague instructions with sensory cues, heat levels, equipment, prep, pitfalls, and storage.
+    """
+    client = _get_client()
+    if client is None:
+        return _fallback_cooking_guide(recipe)
+        
+    recipe_id = recipe.get("id", "Unknown")
+    title = recipe.get("title", "Recipe")
+    source = recipe.get("source", "Unknown").upper()
+    ingredients_list = "\n".join(f"- {ing}" for ing in recipe.get("ingredients", []))
+    instructions = recipe.get("instructions", "")
+    
+    prompt = f"""You are a patient, expert chef and conversational cooking guide for Nosh Robotics.
+The user is asking for cooking guidance for this recipe:
+
+USER QUERY: {query}
+
+OFFICIAL RETRIEVED RECIPE RECORD:
+Recipe Title: {title}
+Recipe ID: {recipe_id}
+Dataset Source: {source}
+Ingredients:
+{ingredients_list}
+
+Original Instructions:
+{instructions}
+
+TASK:
+Produce an actionable, beginner-friendly, and structured step-by-step cooking guide.
+
+MANDATORY RULES:
+1. Grounding: You must use the retrieved recipe as the primary source of truth. Preserve all original ingredients and their exact quantities. Do not add mandatory ingredients that are not in the recipe.
+2. Label Estimates: If preparation times, cooking times, or servings are not explicitly stated in the source, label them clearly with '(Estimated)'.
+3. Beginner Explanations: Expand brief instructions into clear, actionable advice. Instead of just 'simmer until thickened', explain heat level (e.g. low flame), stirring cadence, and sensory/texture indicators (e.g., 'until it coats the back of a spoon').
+4. Cultural & Indian Culinary Context: When the recipe involves Indian cuisine or desserts (like Kheer or Payasam), naturally reference familiar terms where appropriate (e.g., Kadai, Ghee, Elaichi/Cardamom, Chawal, Simmer, Tadka) without altering the dish into something else.
+5. Format the output cleanly with the following markdown structure:
+
+# 🍲 {title}
+> **Recipe ID**: `{recipe_id}` | **Source**: {source}  
+> ⏱️ **Prep Time**: [Value or '15 mins (Estimated)'] | 🔥 **Cook Time**: [Value or '30 mins (Estimated)'] | 🍽️ **Servings**: [Value or '4 servings (Estimated)']
+
+### 🛒 Ingredients (Original & Preserved)
+[List all ingredients exactly as provided in the recipe]
+
+### 🍳 Required Equipment
+[List common kitchen tools needed, e.g., heavy-bottomed pot/kadai, wooden spatula, measuring cups]
+
+### 🥣 Preparation Before Cooking (Mise en Place)
+[Essential prep steps before turning on heat: washing, soaking, chopping, crushing spices]
+
+### 👩‍🍳 Step-by-Step Cooking Instructions
+[Numbered, beginner-friendly steps with heat levels, stirring tips, and timing cues]
+
+### 👁️ Visual & Texture Doneness Indicators
+[Sensory cues indicating when it's done: consistency, aroma, color change]
+
+### ⚠️ Common Mistakes to Avoid
+[Practical tips on preventing scorching, overcooking, or curdling]
+
+### 🌿 Serving & Garnishing Suggestions
+[Serving temperature, garnishing touches]
+
+### 🧊 Storage Suggestions
+[How to store leftovers and shelf life]
+
+Generate the complete guide now:"""
+
+    try:
+        response = client.models.generate_content(
+            model=get_model_name(),
+            contents=prompt,
+        )
+        return response.text
+    except Exception as e:
+        print(f"  WARNING: LLM cooking guide generation failed: {e}")
+        return _fallback_cooking_guide(recipe)
+
+
+def _fallback_cooking_guide(recipe: dict) -> str:
+    """Generate a structured, beginner-friendly cooking guide deterministically without LLM."""
+    title = recipe.get("title", "Delicious Dish")
+    recipe_id = recipe.get("id", "N/A")
+    source = recipe.get("source", "N/A").upper()
+    ingredients = recipe.get("ingredients", [])
+    raw_instructions = recipe.get("instructions", "").strip()
+    
+    # Split instructions into steps
+    from app.data_processor import count_instruction_steps
+    steps = [s.strip() for s in raw_instructions.split('\n') if s.strip()]
+    if len(steps) <= 1:
+        import re
+        steps = [s.strip() for s in re.split(r'\.(?:\s+)(?=[A-Z])', raw_instructions) if len(s.strip()) > 15]
+    if not steps:
+        steps = [raw_instructions]
+        
+    lines = [
+        f"# 🍲 {title}",
+        f"> **Recipe ID**: `{recipe_id}` | **Source**: {source}",
+        f"> ⏱️ **Prep Time**: 15 mins (Estimated) | 🔥 **Cook Time**: 25-35 mins (Estimated) | 🍽️ **Servings**: 4 (Estimated)",
+        "",
+        "### 🛒 Ingredients (Original & Preserved)",
+    ]
+    for ing in ingredients:
+        lines.append(f"- {ing}")
+        
+    lines.extend([
+        "",
+        "### 🍳 Required Equipment",
+        "- Heavy-bottomed cooking pan or kadai",
+        "- Wooden spoon or heat-resistant spatula",
+        "- Measuring spoons & cups",
+        "",
+        "### 🥣 Preparation Before Cooking (Mise en Place)",
+        "- Measure out all ingredients before turning on the heat.",
+        "- Rinse and prepare any produce or grains as required.",
+        "",
+        "### 👩‍🍳 Step-by-Step Cooking Instructions",
+    ])
+    
+    for i, step in enumerate(steps, 1):
+        step_text = step.rstrip('.') + '.'
+        lines.append(f"{i}. **Step {i}**: {step_text}")
+        
+    lines.extend([
+        "",
+        "### 👁️ Visual & Texture Doneness Indicators",
+        "- Check for a cohesive texture, aromatic fragrance, and uniform cooking.",
+        "- Liquids should gently simmer without rapid boiling to avoid burning.",
+        "",
+        "### ⚠️ Common Mistakes to Avoid",
+        "- Keep the heat on low-to-medium flame to prevent sticking or scorching.",
+        "- Stir periodically, especially when cooking dairy or grain-based dishes.",
+        "",
+        "### 🌿 Serving & Garnishing Suggestions",
+        "- Serve hot or at room temperature as preferred.",
+        "- Garnish with fresh herbs, roasted nuts, or appropriate spices.",
+        "",
+        "### 🧊 Storage Suggestions",
+        "- Cool completely and store in an airtight container in the refrigerator for up to 3 days."
+    ])
+    
+    return "\n".join(lines)
+
+
 def _fallback_response(query: str, recipes: list[dict], context: dict) -> str:
     """Generate a structured response without the LLM.
     
@@ -222,17 +375,21 @@ def _fallback_response(query: str, recipes: list[dict], context: dict) -> str:
             "Try different keywords or broaden your search criteria."
         )
     
-    lines = [f"I found {len(recipes)} recipe(s) matching your query:\n"]
+    lines = [f"I found {len(recipes)} matching recipe(s) for your request:\n"]
     
     for i, recipe in enumerate(recipes[:5], 1):
-        lines.append(f"**{i}. {recipe['title']}**")
-        lines.append(f"   ID: `{recipe['id']}`")
-        lines.append(f"   Source: {recipe['source']}")
-        lines.append(f"   Ingredients ({len(recipe['ingredients'])}): "
-                     f"{', '.join(recipe['ingredients'][:5])}...")
-        instructions_preview = recipe['instructions'][:150].replace('\n', ' ')
-        lines.append(f"   Instructions: {instructions_preview}...")
-        lines.append("")
+        lines.append(f"### {i}. 🍲 {recipe['title']}")
+        lines.append(f"> **ID**: `{recipe['id']}` | **Source**: `{recipe['source'].upper()}`")
+        lines.append(f"**Key Ingredients ({len(recipe['ingredients'])} total):**")
+        for ing in recipe['ingredients'][:4]:
+            lines.append(f"- {ing}")
+        if len(recipe['ingredients']) > 4:
+            lines.append(f"- *...and {len(recipe['ingredients']) - 4} more*")
+            
+        instructions_preview = recipe['instructions'][:180].replace('\n', ' ').strip()
+        lines.append(f"**Cooking Overview:** {instructions_preview}...")
+        lines.append("*💡 Tip: Ask me 'How do I prepare this step-by-step?' for detailed cooking guidance!*")
+        lines.append("\n---\n")
     
     return "\n".join(lines)
 

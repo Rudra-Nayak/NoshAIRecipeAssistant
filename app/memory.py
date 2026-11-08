@@ -30,6 +30,10 @@ class ConversationMemory:
         user_ingredients: Ingredients the user has mentioned having.
         last_recipes: The actual recipe dicts from the last result.
         turn_count: Number of conversation turns.
+        region: Configured geographic region (defaults to 'India').
+        current_dish: Active dish name currently discussed (e.g., 'kheer').
+        current_recipe_id: Active recipe ID being examined or cooked.
+        excluded_ingredients: User-requested excluded ingredients across turns.
     """
     history: list = field(default_factory=list)
     last_query: str = ""
@@ -40,6 +44,10 @@ class ConversationMemory:
     user_ingredients: list = field(default_factory=list)
     last_recipes: list = field(default_factory=list)
     turn_count: int = 0
+    region: str = "India"
+    current_dish: str = ""
+    current_recipe_id: str = ""
+    excluded_ingredients: list = field(default_factory=list)
     
     def add_user_message(self, message: str) -> None:
         """Record a user message."""
@@ -90,7 +98,23 @@ class ConversationMemory:
         
         if ingredients:
             self.user_ingredients = ingredients
-    
+
+    def set_current_dish(self, dish_name: str, recipe_id: str = "") -> None:
+        """Track the specific active dish being discussed or cooked."""
+        self.current_dish = dish_name
+        if recipe_id:
+            self.current_recipe_id = recipe_id
+
+    def add_excluded_ingredient(self, ingredient: str) -> None:
+        """Add an ingredient the user cannot or does not want to use."""
+        clean_ing = ingredient.strip().lower()
+        if clean_ing and clean_ing not in self.excluded_ingredients:
+            self.excluded_ingredients.append(clean_ing)
+
+    def set_region(self, region: str) -> None:
+        """Set geographic region preference."""
+        self.region = region
+
     def get_context_for_followup(self) -> dict:
         """Get the current conversation context for follow-up handling.
         
@@ -107,10 +131,15 @@ class ConversationMemory:
             "user_ingredients": self.user_ingredients,
             "has_previous_results": len(self.matching_recipe_ids) > 0,
             "previous_result_count": len(self.matching_recipe_ids),
+            "region": self.region,
+            "current_dish": self.current_dish,
+            "current_recipe_id": self.current_recipe_id,
+            "excluded_ingredients": self.excluded_ingredients,
         }
     
     def clear(self) -> None:
-        """Reset all memory (new conversation)."""
+        """Reset conversation memory (preserves configured region)."""
+        saved_region = self.region
         self.history.clear()
         self.last_query = ""
         self.last_intent = ""
@@ -119,7 +148,11 @@ class ConversationMemory:
         self.dietary_restrictions.clear()
         self.user_ingredients.clear()
         self.last_recipes.clear()
+        self.current_dish = ""
+        self.current_recipe_id = ""
+        self.excluded_ingredients.clear()
         self.turn_count = 0
+        self.region = saved_region
     
     def get_chat_history_text(self, max_turns: int = 5) -> str:
         """Get recent chat history as formatted text for LLM context.

@@ -18,6 +18,7 @@ from app.query_parser import parse_query, INTENT_SEARCH, INTENT_FOLLOWUP
 from app.hybrid_retrieval import hybrid_search
 from app.reranker import rerank_results
 from app.data_processor import normalize_ingredient_name
+from app.dietary_filter import is_recipe_compliant, check_ambiguous_ingredients
 
 
 def filter_by_ingredients(
@@ -54,50 +55,58 @@ def filter_by_ingredients(
     return True
 
 
-def filter_by_dietary(recipe: dict, restrictions: list[str]) -> bool:
-    """Check if a recipe likely satisfies dietary restrictions.
+def filter_by_dietary(
+    recipe: dict,
+    restrictions: list[str],
+    region: str = "India",
+    is_explicit_beef_request: bool = False,
+    custom_exclusions: list[str] = None,
+) -> bool:
+    """Check if a recipe satisfies cultural and dietary restrictions.
     
-    This is a best-effort filter since the dataset has no explicit
-    dietary labels. We check for the ABSENCE of restricted ingredients.
-    
-    Known limitation: This can produce false positives (e.g., a recipe
-    might not list "butter" explicitly but use "cream sauce" which
-    contains dairy).
+    Enforces deterministic filtering through app.dietary_filter.
     
     Args:
         recipe: Full recipe dictionary.
         restrictions: List of dietary restriction labels.
+        region: Geographic region ('India' by default).
+        is_explicit_beef_request: Whether user specifically searched for beef.
+        custom_exclusions: Custom user-specified excluded ingredients.
         
     Returns:
-        True if the recipe likely satisfies the restrictions.
+        True if the recipe satisfies all dietary constraints.
     """
-    recipe_text = " ".join(recipe["ingredients"]).lower()
+    ok, _violations = is_recipe_compliant(
+        recipe=recipe,
+        restrictions=restrictions,
+        region=region,
+        is_explicit_beef_request=is_explicit_beef_request,
+        custom_exclusions=custom_exclusions,
+    )
+    return ok
+
+
+def _check_dish_distinctions(recipe: dict, query_lower: str) -> bool:
+    """Verify dish-specific constraints to avoid conflating similar-sounding dishes.
     
-    # Map dietary restrictions to ingredient exclusion lists
-    _RESTRICTION_EXCLUSIONS = {
-        "vegetarian": ["chicken", "beef", "pork", "lamb", "fish", "salmon",
-                       "tuna", "shrimp", "bacon", "sausage", "turkey",
-                       "steak", "ground meat", "veal", "duck", "crab",
-                       "lobster", "anchov"],
-        "vegan": ["chicken", "beef", "pork", "lamb", "fish", "salmon",
-                  "egg", "milk", "cream", "butter", "cheese", "yogurt",
-                  "honey", "gelatin", "bacon", "sausage", "turkey",
-                  "shrimp", "steak", "whey", "casein"],
-        "gluten-free": ["flour", "bread", "pasta", "noodle", "wheat",
-                        "breadcrumb", "cracker", "tortilla", "couscous",
-                        "barley", "rye"],
-        "dairy-free": ["milk", "cream", "butter", "cheese", "yogurt",
-                       "whey", "casein", "sour cream", "ice cream"],
-        "nut-free": ["almond", "walnut", "pecan", "cashew", "pistachio",
-                     "hazelnut", "macadamia", "peanut", "pine nut"],
-    }
+    e.g., 'rice kheer' must contain rice, and should not return purely vermicelli/seviyan.
+    """
+    title_lower = recipe.get("title", "").lower()
+    recipe_text = (" " + " ".join(recipe.get("ingredients", []))).lower()
     
-    for restriction in restrictions:
-        exclusions = _RESTRICTION_EXCLUSIONS.get(restriction, [])
-        for excluded in exclusions:
-            if excluded in recipe_text:
-                return False
-    
+    # Distinction 1: Rice Kheer vs Vermicelli Kheer
+    if "rice kheer" in query_lower or "chawal kheer" in query_lower or ("rice" in query_lower and "kheer" in query_lower):
+        # Must contain rice in ingredients
+        has_rice = any(r in recipe_text for r in ["rice", "basmati", "chawal"])
+        if not has_rice:
+            return False
+            
+    # Explicit exclusion of vermicelli if user asked for "only rice kheer"
+    if ("only rice" in query_lower or "not vermicelli" in query_lower) and "kheer" in query_lower:
+        has_vermicelli = any(v in recipe_text or v in title_lower for v in ["vermicelli", "seviyan", "semiya"])
+        if has_vermicelli and not any(r in recipe_text for r in ["rice", "basmati"]):
+            return False
+
     return True
 
 
@@ -108,16 +117,19 @@ def search_recipes(
     recipe_index: dict[str, dict],
     parsed_query: dict = None,
     top_k: int = 5,
+    region: str = "India",
+    custom_exclusions: list[str] = None,
 ) -> dict:
-    """Execute the full recipe search pipeline.
+    """Execute the full recipe search pipeline with cultural and dietary guardrails.
     
     Pipeline:
     1. Parse query -> intent + constraints
     2. Hybrid retrieval (BM25 + FAISS) -> ~30 candidates
     3. RRF fusion -> ~20 ranked candidates
-    4. Hard constraint filtering (ingredients, dietary) -> filtered set
-    5. Reranking -> final top-k
-    6. Fetch original records -> response
+    4. Hard constraint filtering (cultural beef-default, Jain, dietary, custom exclusions)
+    5. Dish distinction checks (e.g. rice kheer != vermicelli kheer)
+    6. Reranking -> final top-k
+    7. Fetch original records + ambiguous ingredient annotations
     
     Args:
         query: User search query.
@@ -126,6 +138,8 @@ def search_recipes(
         recipe_index: Dictionary mapping recipe ID -> recipe dict.
         parsed_query: Pre-parsed query (if already available from router).
         top_k: Number of final results to return.
+        region: Geographic region ('India' by default).
+        custom_exclusions: List of user-specified excluded ingredients.
         
     Returns:
         Dictionary with:
@@ -134,19 +148,30 @@ def search_recipes(
             - query_info: parsed query details
             - total_candidates: number before filtering
             - total_after_filter: number after constraint filtering
+            - ambiguous_ingredients: list of flagged ambiguous items
     """
     # Step 1: Parse query
     if parsed_query is None:
         parsed_query = parse_query(query)
+    
+    query_lower = query.lower()
+    is_explicit_beef = parsed_query.get("is_explicit_beef_request", False)
+    
+    # Merge custom exclusions from parsed query and arguments
+    all_exclusions = []
+    if custom_exclusions:
+        all_exclusions.extend(custom_exclusions)
+    if parsed_query.get("missing_ingredients"):
+        all_exclusions.extend(parsed_query["missing_ingredients"])
     
     # Step 2-3: Hybrid retrieval with RRF
     fused_results = hybrid_search(
         query=query,
         bm25_retriever=bm25_retriever,
         faiss_retriever=faiss_retriever,
-        top_k=30,
-        bm25_top_k=40,
-        faiss_top_k=40,
+        top_k=35,
+        bm25_top_k=45,
+        faiss_top_k=45,
     )
     
     total_candidates = len(fused_results)
@@ -158,21 +183,33 @@ def search_recipes(
             "query_info": parsed_query,
             "total_candidates": 0,
             "total_after_filter": 0,
+            "ambiguous_ingredients": [],
         }
     
     # Step 4: Hard constraint filtering against ORIGINAL records
     rrf_scores = {rid: score for rid, score in fused_results}
     filtered_ids = []
+    dietary_restrictions = parsed_query.get("dietary_restrictions", [])
     
     for recipe_id, score in fused_results:
         recipe = recipe_index.get(recipe_id)
         if recipe is None:
             continue
         
-        # Apply dietary filters
-        if parsed_query.get("dietary_restrictions"):
-            if not filter_by_dietary(recipe, parsed_query["dietary_restrictions"]):
-                continue
+        # Apply deterministic dietary & cultural filters
+        compliant = filter_by_dietary(
+            recipe=recipe,
+            restrictions=dietary_restrictions,
+            region=region,
+            is_explicit_beef_request=is_explicit_beef,
+            custom_exclusions=all_exclusions if all_exclusions else None,
+        )
+        if not compliant:
+            continue
+            
+        # Apply fine-grained dish distinctions
+        if not _check_dish_distinctions(recipe, query_lower):
+            continue
         
         filtered_ids.append(recipe_id)
     
@@ -188,9 +225,19 @@ def search_recipes(
         top_k=top_k,
     )
     
-    # Step 6: Fetch original records
+    # Step 6: Fetch original records and check for ambiguous ingredients
     final_ids = [rid for rid, score in reranked]
     final_recipes = [recipe_index[rid] for rid in final_ids if rid in recipe_index]
+    
+    ambiguous_notes = []
+    for r in final_recipes:
+        flags = check_ambiguous_ingredients(r)
+        if flags:
+            ambiguous_notes.append({
+                "recipe_id": r["id"],
+                "recipe_title": r["title"],
+                "flags": flags
+            })
     
     return {
         "recipes": final_recipes,
@@ -198,5 +245,6 @@ def search_recipes(
         "query_info": parsed_query,
         "total_candidates": total_candidates,
         "total_after_filter": total_after_filter,
+        "ambiguous_ingredients": ambiguous_notes,
     }
 
