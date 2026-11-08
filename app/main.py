@@ -200,14 +200,28 @@ def get_chatgpt_css(theme: str) -> str:
             background-color: {input_bg} !important;
             border: 1px solid {input_border} !important;
             border-radius: 24px !important;
-            box-shadow: 0 4px 16px {'rgba(0,0,0,0.3)' if is_dark else 'rgba(0,0,0,0.06)'} !important;
+            box-shadow: 0 4px 16px {'rgba(0,0,0,0.35)' if is_dark else 'rgba(0,0,0,0.06)'} !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }}
+        div[data-testid="stChatInput"]:focus-within {{
+            border-color: {accent} !important;
+            box-shadow: 0 0 0 1px {accent}, 0 4px 16px {'rgba(16,163,127,0.2)' if is_dark else 'rgba(16,163,127,0.08)'} !important;
         }}
         div[data-testid="stChatInput"] textarea {{
             color: {text_primary} !important;
             font-size: 0.95rem !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }}
+        div[data-testid="stChatInput"] textarea:focus {{
+            outline: none !important;
+            box-shadow: none !important;
         }}
         div[data-testid="stChatInput"] textarea::placeholder {{
             color: {text_secondary} !important;
+        }}
+        div[data-testid="stBottomBlockContainer"] {{
+            background-color: {bg_main} !important;
         }}
 
         /* Streamlit widget controls (selectbox, text input, tags) */
@@ -299,7 +313,7 @@ def main():
         if st.button("➕  New chat", key="new_chat_btn", use_container_width=True):
             memory.clear()
             st.session_state.messages = []
-            st.session_state.injected_prompt = None
+            st.session_state.pending_prompt = None
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -383,7 +397,7 @@ def main():
         if st.button("🗑️  Clear conversation", key="clear_chat_btn"):
             memory.clear()
             st.session_state.messages = []
-            st.session_state.injected_prompt = None
+            st.session_state.pending_prompt = None
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -391,8 +405,8 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display ChatGPT Welcome Hero & Starter Cards when conversation is fresh
-    if len(st.session_state.messages) == 0:
+    # Display ChatGPT Welcome Hero & Starter Cards when conversation has not started
+    if len(st.session_state.messages) == 0 and not st.session_state.get("pending_prompt"):
         st.markdown("""
         <div class="chatgpt-hero">
             <div class="chatgpt-hero-icon">🍳</div>
@@ -406,7 +420,7 @@ def main():
             ("🍚  Rice Kheer for Diwali", "How do I make traditional rice kheer for Diwali step by step?"),
             ("🥘  Pantry Pasta", "I have pasta, garlic, butter, and parmesan. What can I cook?"),
             ("🔄  Jaggery for Sugar", "Can I replace refined sugar with jaggery in dessert recipes?"),
-            ("🥗  Healthy High-Protein", "Find healthy high-protein vegetarian dinner recipes"),
+            ("🥗  High-Protein Dinner", "Suggest healthy high-protein vegetarian recipes with lentils or paneer"),
         ]
 
         col1, col2 = st.columns(2)
@@ -415,7 +429,7 @@ def main():
             with target_col:
                 st.markdown('<div class="starter-card">', unsafe_allow_html=True)
                 if st.button(f"**{label}**\n\n_{prompt_text}_", key=f"start_card_{idx}", use_container_width=True):
-                    st.session_state.injected_prompt = prompt_text
+                    st.session_state.pending_prompt = prompt_text
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
@@ -426,12 +440,14 @@ def main():
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
 
-    # --- Input Handling ---
+    # Always render the chat input at the bottom so it is NEVER missing
+    user_input = st.chat_input("Ask about any recipe, cooking guidance, or ingredients...")
+
+    # Determine prompt to process
     prompt_to_handle = None
-    if "injected_prompt" in st.session_state and st.session_state.injected_prompt:
-        prompt_to_handle = st.session_state.injected_prompt
-        st.session_state.injected_prompt = None
-    elif user_input := st.chat_input("Ask about any recipe, cooking guidance, or ingredients..."):
+    if "pending_prompt" in st.session_state and st.session_state.pending_prompt:
+        prompt_to_handle = st.session_state.pop("pending_prompt")
+    elif user_input:
         prompt_to_handle = user_input
 
     if prompt_to_handle:
@@ -454,8 +470,9 @@ def main():
                 )
             st.markdown(response)
 
-        # 3. Save assistant message to conversation history
+        # 3. Save assistant message to conversation history and rerun cleanly
         st.session_state.messages.append({"role": "assistant", "content": response})
+        st.rerun()
 
 
 if __name__ == "__main__":
