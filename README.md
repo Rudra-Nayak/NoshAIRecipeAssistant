@@ -2,13 +2,14 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Tests Passing](https://img.shields.io/badge/pytest-92%20passed-brightgreen.svg)](tests/)
-[![Streamlit](https://img.shields.io/badge/UI-Culinary%20Streamlit-red.svg)](app/main.py)
+[![Streamlit](https://img.shields.io/badge/UI-ChatGPT%20Light%2FDark-red.svg)](app/main.py)
 [![Architecture](https://img.shields.io/badge/RAG-Hybrid%20BM25%20%2B%20FAISS-orange.svg)](docs/retrieval_pipeline.md)
 [![Cultural](https://img.shields.io/badge/Cultural-India--Aware%20%2B%20Jain-purple.svg)](app/dietary_filter.py)
 
 A production-grade, interview-ready Conversational Recipe Assistant built on the **Eight Portions Recipe Dataset** (122,938 usable recipes from AllRecipes, Epicurious, and Food Network).
 
-Engineered with a **truth-first hybrid retrieval architecture and cultural guardrails**:
+Engineered with a **truth-first hybrid retrieval architecture, cultural guardrails, and a modern ChatGPT-style interface**:
+- **ChatGPT-Inspired Minimalist UI**: Sleek centered chat layout with instant Light/Dark mode switching, `+ New chat` reset button, 2x2 starter inspiration cards, and elimination of all irrelevant backend diagnostic clutter from user view.
 - **BM25 lexical retrieval** + **FAISS dense vector search**
 - **Reciprocal Rank Fusion (RRF)**
 - **India-Aware Cultural Sensitivity**: Region defaults to India with automatic beef exclusion from default discovery; respects explicit beef requests neutrally without bias.
