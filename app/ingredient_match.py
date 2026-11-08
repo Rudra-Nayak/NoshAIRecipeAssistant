@@ -152,7 +152,9 @@ def find_matching_recipes(
     recipes: list[dict],
     dietary_restrictions: list[str] = None,
     excluded_ingredients: list[str] = None,
-    min_match_score: float = 0.3,
+    min_match_score: float = 0.2,
+    max_steps: Optional[int] = None,
+    prefer_fewest_missing: bool = False,
     top_n: int = 10,
 ) -> list[dict]:
     """Find recipes that best match the user's available ingredients.
@@ -160,25 +162,15 @@ def find_matching_recipes(
     Pipeline:
     1. Normalize user ingredients
     2. Score every recipe by ingredient coverage
-    3. Apply hard constraints (dietary, excluded ingredients)
-    4. Sort by match score
-    5. Return top-N with full match breakdown
+    3. Apply hard constraints (dietary, excluded ingredients, max instruction steps)
+    4. Sort by match score or fewest missing ingredients
+    5. Return top-N with full match breakdown and step counts
     
     Hard constraints are NEVER relaxed. If no recipe passes all constraints,
     we return an empty list with a clear message.
-    
-    Args:
-        user_ingredients: Raw ingredient strings from the user.
-        recipes: Full recipe list.
-        dietary_restrictions: List of dietary restriction labels.
-        excluded_ingredients: Ingredients to exclude.
-        min_match_score: Minimum match score threshold.
-        top_n: Number of top results to return.
-        
-    Returns:
-        List of result dicts, each containing the recipe and match details.
     """
     from app.recipe_search import filter_by_dietary
+    from app.data_processor import count_instruction_steps
     
     # Step 1: Normalize user ingredients
     normalized_user = [normalize_ingredient_name(ing) for ing in user_ingredients]
@@ -189,11 +181,17 @@ def find_matching_recipes(
         # Step 2: Compute match score
         match = compute_match_score(normalized_user, recipe)
         
-        # Skip low-score matches early (optimization for 123K recipes)
-        if match["score"] < min_match_score:
+        # Skip recipes with zero or negligible matches early
+        if match["matched_count"] == 0:
             continue
+            
+        step_count = count_instruction_steps(recipe)
         
         # Step 3: Apply hard constraints
+        # Max instruction steps hard constraint
+        if max_steps is not None and step_count > max_steps:
+            continue
+            
         # Dietary restrictions
         if dietary_restrictions:
             if not filter_by_dietary(recipe, dietary_restrictions):
@@ -213,10 +211,15 @@ def find_matching_recipes(
         results.append({
             "recipe": recipe,
             "match": match,
+            "step_count": step_count,
         })
     
-    # Step 4: Sort by match score (highest first)
-    results.sort(key=lambda x: x["match"]["score"], reverse=True)
+    # Step 4: Sort
+    if prefer_fewest_missing:
+        # Maximize matched user ingredients first, then minimize missing additional items, then fewer steps
+        results.sort(key=lambda x: (-x["match"]["matched_count"], len(x["match"]["missing"]), x["step_count"]))
+    else:
+        results.sort(key=lambda x: (-x["match"]["score"], len(x["match"]["missing"]), x["step_count"]))
     
     # Step 5: Return top-N
     return results[:top_n]

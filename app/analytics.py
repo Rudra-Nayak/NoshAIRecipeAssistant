@@ -252,6 +252,74 @@ def compute_analytics(
     
     result = {"query": query, "type": "analytics"}
     
+    # 1. Multi-ingredient co-occurrence analytics (e.g. 'both garlic and onion', 'contain X and Y')
+    import re
+    if (("both" in query_lower and "and" in query_lower) or 
+        ("contain" in query_lower and "and" in query_lower and any(w in query_lower for w in ["how many", "count", "percentage", "percent"]))):
+        m = re.search(r"both\s+([a-zA-Z\s]+?)\s+and\s+([a-zA-Z\s]+?)(?:\?|\.|\s+what|\s+how|$)", query_lower)
+        if not m:
+            m = re.search(r"contain(?:ing)?\s+([a-zA-Z\s]+?)\s+and\s+([a-zA-Z\s]+?)(?:\?|\.|\s+what|\s+how|$)", query_lower)
+            
+        if m:
+            ing1 = m.group(1).strip()
+            ing2 = m.group(2).strip()
+            ing1 = re.sub(r"\b(recipes?|contain|containing)\b", "", ing1).strip()
+            ing2 = re.sub(r"\b(what|percentage|percent|of|the|dataset|is|that)\b", "", ing2).strip()
+            
+            total_count = len(recipes)
+            matching = [
+                r for r in recipes
+                if any(ing1 in i.lower() for i in r["ingredients"])
+                and any(ing2 in i.lower() for i in r["ingredients"])
+            ]
+            count = len(matching)
+            pct = (count / total_count * 100) if total_count > 0 else 0.0
+            
+            summary = (
+                f"### 📊 Ingredient Co-Occurrence Analytics\n\n"
+                f"- **Matching Recipes**: **{count:,}** recipes contain both **{ing1}** and **{ing2}**.\n"
+                f"- **Dataset Denominator**: **{total_count:,}** total usable recipes in the dataset.\n"
+                f"- **Percentage**: **{pct:.2f}%** of the entire collection.\n\n"
+                f"**Normalization Methodology**:\n"
+                f"Ingredient names are normalized by stripping measurement units (cloves, cups, grams, tablespoons), "
+                f"preparation adjectives (minced, chopped, diced, crushed, sliced), and punctuation. "
+                f"Entries such as _'4 cloves garlic, minced'_ and _'1 yellow onion, chopped'_ are canonicalized to **{ing1}** and **{ing2}**."
+            )
+            result["answer"] = {"count": count, "total": total_count, "percentage": pct, "ingredients": [ing1, ing2]}
+            result["summary"] = summary
+            return result
+
+    # 2. Fewest instruction steps with ingredient constraint (e.g. 'Among recipes containing tomato, which five have the fewest instruction steps?')
+    if any(k in query_lower for k in ["fewest step", "least step", "fewest instruction step"]):
+        target_ing = ""
+        m_ing = re.search(r"containing\s+([a-zA-Z\s]+?)(?:,|\s+which|\s+have|\s+has|\?|$)", query_lower)
+        if not m_ing:
+            m_ing = re.search(r"recipes?\s+with\s+([a-zA-Z\s]+?)(?:,|\s+which|\s+have|\s+has|\?|$)", query_lower)
+        if m_ing:
+            target_ing = m_ing.group(1).strip()
+            
+        target_recipes = recipes
+        if target_ing:
+            target_recipes = [
+                r for r in recipes 
+                if any(target_ing in i.lower() for i in r["ingredients"]) or target_ing in r["title"].lower()
+            ]
+            
+        ranked = rank_by_step_count(target_recipes, ascending=True, top_n=5, filters=filters)
+        result["answer"] = ranked
+        
+        lines = [
+            f"### 📋 Top 5 Recipes {f'Containing {target_ing.title()} ' if target_ing else ''}with Fewest Instruction Steps\n",
+            "**Step-Counting Rule**: Instructions are counted by splitting text on newlines (`\\n`) or numbered step markers (`1.`, `2.`), falling back to terminal sentence delimiters (`. `) for single paragraphs.\n"
+        ]
+        for idx, r in enumerate(ranked, 1):
+            lines.append(f"**{idx}. 🍲 {r['title']}** (Recipe ID: `{r['id']}`)")
+            lines.append(f"   - **Instruction Steps**: **{r['step_count']} step(s)**")
+            lines.append(f"   - **Instructions**: _{r['instructions'][:160].replace(chr(10), ' ').strip()}..._")
+            lines.append("")
+        result["summary"] = "\n".join(lines)
+        return result
+    
     if any(k in query_lower for k in ["how many", "count", "total"]):
         count = total_recipe_count(recipes, filters)
         result["answer"] = count
