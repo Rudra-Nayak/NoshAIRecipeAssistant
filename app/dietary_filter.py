@@ -271,3 +271,4 @@ def filter_recipes_dietary(
         if ok:
             compliant_recipes.append(recipe)
     return compliant_recipes
+

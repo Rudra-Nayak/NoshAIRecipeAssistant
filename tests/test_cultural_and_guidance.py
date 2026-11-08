@@ -293,3 +293,4 @@ def test_12_unsupported_substitution_evidence(sample_corpus):
     assert evidence["confidence"] == "none"
     assert "No evidence found in the dataset" in evidence["explanation"]
     assert len(evidence["direct_evidence"]) == 0
+

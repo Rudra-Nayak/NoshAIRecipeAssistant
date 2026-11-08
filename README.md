@@ -1,19 +1,21 @@
 # 🍳 Nosh Recipe Assistant: Conversational Culinary Agent
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Tests Passing](https://img.shields.io/badge/pytest-80%20passed-brightgreen.svg)](tests/)
-[![Streamlit](https://img.shields.io/badge/UI-Streamlit-red.svg)](app/main.py)
+[![Tests Passing](https://img.shields.io/badge/pytest-92%20passed-brightgreen.svg)](tests/)
+[![Streamlit](https://img.shields.io/badge/UI-Culinary%20Streamlit-red.svg)](app/main.py)
 [![Architecture](https://img.shields.io/badge/RAG-Hybrid%20BM25%20%2B%20FAISS-orange.svg)](docs/retrieval_pipeline.md)
+[![Cultural](https://img.shields.io/badge/Cultural-India--Aware%20%2B%20Jain-purple.svg)](app/dietary_filter.py)
 
 A production-grade, interview-ready Conversational Recipe Assistant built on the **Eight Portions Recipe Dataset** (122,938 usable recipes from AllRecipes, Epicurious, and Food Network).
 
-Engineered with a **truth-first hybrid retrieval architecture**:
+Engineered with a **truth-first hybrid retrieval architecture and cultural guardrails**:
 - **BM25 lexical retrieval** + **FAISS dense vector search**
 - **Reciprocal Rank Fusion (RRF)**
-- **Deterministic Python hard-constraint verification** (guaranteeing 100% dietary compliance)
-- **Lightweight heuristic reranker**
-- **Grounded response generation** via Google Gemini API
-- **Multi-turn conversation memory** for contextual follow-ups
+- **India-Aware Cultural Sensitivity**: Region defaults to India with automatic beef exclusion from default discovery; respects explicit beef requests neutrally without bias.
+- **Deterministic Multi-Dietary Filtering**: Strict query-time enforcement for Vegetarian, Jain Vegetarian (no root produce/garlic/onion), Vegan, No Beef, No Pork, No Seafood, No Eggs, and custom exclusions.
+- **Detailed Step-by-Step Cooking Guides**: 13-point structured beginner-friendly culinary guides with sensory/doneness cues, mise en place, equipment, common pitfalls, and Indian culinary terms (*Kheer, Payasam, Ghee, Elaichi, Chawal, Tadka*).
+- **Contextual Intent Retention**: Recognizes ingredient omissions (*"I don't have coconut milk"*) while preserving culinary intent across turns.
+- **Lightweight heuristic reranker** & **Grounded response generation** via Google Gemini API.
 
 ---
 
