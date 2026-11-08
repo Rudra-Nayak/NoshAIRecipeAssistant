@@ -304,7 +304,7 @@ def _handle_contextual_mod(
             f"and found recipes that do not require it:\n"
         ]
         for i, r in enumerate(search_res["recipes"], 1):
-            lines.append(f"**{i}. 🍲 {r['title']}** (ID: `{r['id']}`)")
+            lines.append(f"**{i}. 🍲 {r['title']}**")
             lines.append(f"   Ingredients: {', '.join(r['ingredients'][:5])}...")
             lines.append(f"   *Instructions overview:* {r['instructions'][:140].replace(chr(10), ' ')}...")
             lines.append("")
@@ -509,7 +509,7 @@ def _handle_ingredient_match(
     for i, r in enumerate(results[:5], 1):
         recipe = r["recipe"]
         match = r["match"]
-        lines.append(f"**{i}. {recipe['title']}** (ID: `{recipe['id']}`)")
+        lines.append(f"**{i}. 🍲 {recipe['title']}**")
         lines.append(f"   Match: {match['score']:.0%} "
                      f"({match['matched_count']}/{match['total_recipe_ingredients']} ingredients)")
         if match["missing"]:
@@ -603,7 +603,7 @@ def _handle_followup(
             context_dict = {
                 "type": "analytics",
                 "summary": (f"Among the previous results, '{best['title']}' "
-                           f"(ID: {best['id']}) has the fewest steps ({steps}).")
+                           f"has the fewest steps ({steps}).")
             }
             return llm.generate_response(query, [best], context_dict,
                                           memory.get_chat_history_text(3))
@@ -615,7 +615,7 @@ def _handle_followup(
             context_dict = {
                 "type": "analytics",
                 "summary": (f"Among the previous results, '{best['title']}' "
-                           f"(ID: {best['id']}) has the fewest ingredients "
+                           f"has the fewest ingredients "
                            f"({len(best['ingredients'])}).")
             }
             return llm.generate_response(query, [best], context_dict,
@@ -634,7 +634,7 @@ def _handle_followup(
             if has_coconut_flakes and not has_coconut_milk:
                 matching_lines = [i for i in active_rec["ingredients"] if "coconut" in i.lower()]
                 return (
-                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'** (ID: `{active_rec['id']}`):\n\n"
+                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'**:\n\n"
                     f"- This recipe contains: **{', '.join(matching_lines)}**.\n"
                     f"- **Important Distinction**: It uses **coconut flakes/shredded coconut**, but **does NOT contain coconut milk**.\n\n"
                     f"Coconut flakes add dry texture and sweetness, whereas coconut milk provides liquid creaminess. "
@@ -643,11 +643,11 @@ def _handle_followup(
             elif has_coconut_milk:
                 matching_lines = [i for i in active_rec["ingredients"] if "coconut" in i.lower()]
                 return (
-                    f"🔍 Yes, **'{active_rec['title']}'** (ID: `{active_rec['id']}`) contains **{', '.join(matching_lines)}**."
+                    f"🔍 Yes, **'{active_rec['title']}'** contains **{', '.join(matching_lines)}**."
                 )
             elif not has_any_coconut:
                 return (
-                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'** (ID: `{active_rec['id']}`):\n\n"
+                    f"🔍 **Ingredient Inspection for '{active_rec['title']}'**:\n\n"
                     f"I verified the complete ingredient list: **There is no coconut of any kind in this recipe.**\n\n"
                     f"Ingredients listed are: {', '.join(active_rec['ingredients'])}."
                 )

@@ -379,7 +379,6 @@ def _fallback_response(query: str, recipes: list[dict], context: dict) -> str:
     
     for i, recipe in enumerate(recipes[:5], 1):
         lines.append(f"### {i}. 🍲 {recipe['title']}")
-        lines.append(f"> **ID**: `{recipe['id']}` | **Source**: `{recipe['source'].upper()}`")
         lines.append(f"**Key Ingredients ({len(recipe['ingredients'])} total):**")
         for ing in recipe['ingredients'][:4]:
             lines.append(f"- {ing}")
