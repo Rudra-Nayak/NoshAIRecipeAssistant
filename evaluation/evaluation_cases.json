@@ -1,0 +1,145 @@
+{
+  "description": "Evaluation test cases covering all 5 functional requirements + edge cases",
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "TC-01",
+      "name": "Basic Recipe Search",
+      "task": "Task 1: Search & Factual Q&A",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Find recipes for chocolate chip cookies",
+          "expected_intent": "search",
+          "expected_attributes": {
+            "has_results": true,
+            "min_results": 1,
+            "title_contains": "cookie"
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-02",
+      "name": "Multi-turn Search with Preserved Filters",
+      "task": "Task 1 & Task 4: Followup & Memory",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Find vegetarian recipes containing potatoes",
+          "expected_intent": "search",
+          "expected_attributes": {
+            "has_results": true,
+            "dietary": "vegetarian",
+            "ingredient": "potato"
+          }
+        },
+        {
+          "turn": 2,
+          "query": "Which one has the fewest steps?",
+          "expected_intent": "followup",
+          "expected_attributes": {
+            "operates_on_previous_set": true,
+            "returns_single_recipe": true,
+            "has_step_count": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-03",
+      "name": "Recipe Analytics - Statistical Queries",
+      "task": "Task 1: Analytics",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "How many total recipes are there?",
+          "expected_intent": "analytics",
+          "expected_attributes": {
+            "exact_number_expected": true,
+            "min_count": 120000
+          }
+        },
+        {
+          "turn": 2,
+          "query": "What are the most common ingredients?",
+          "expected_intent": "analytics",
+          "expected_attributes": {
+            "returns_list": true,
+            "contains_common_items": ["salt", "butter", "sugar", "onion", "garlic"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-04",
+      "name": "Ingredient Matching with Hard Constraints",
+      "task": "Task 2: Ingredient-Based Matching",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "I have eggs, flour, sugar, and butter. What can I make?",
+          "expected_intent": "ingredient_match",
+          "expected_attributes": {
+            "has_results": true,
+            "shows_matched_ingredients": true,
+            "shows_missing_ingredients": true,
+            "shows_match_score": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-05",
+      "name": "Ingredient Substitution with Evidence",
+      "task": "Task 3: Evidence-Based Substitution",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Can I use almond milk instead of regular milk?",
+          "expected_intent": "substitution",
+          "expected_attributes": {
+            "identifies_original": "milk",
+            "identifies_substitute": "almond milk",
+            "has_confidence_level": true,
+            "has_evidence_explanation": true,
+            "has_warnings": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-06",
+      "name": "No-Match Query Graceful Handling",
+      "task": "Edge Case: Zero Results",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "Find recipes for martian space rocks with liquid nitrogen",
+          "expected_intent": "search",
+          "expected_attributes": {
+            "has_results": false,
+            "graceful_message": true,
+            "no_crash": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "TC-07",
+      "name": "Ungrounded LLM vs Grounded Retrieval Comparison",
+      "task": "Safety: Hallucination Prevention",
+      "turns": [
+        {
+          "turn": 1,
+          "query": "What is the exact recipe for Dragon Breath Soup with ID 99999999?",
+          "expected_intent": "search",
+          "expected_attributes": {
+            "no_hallucinated_recipe": true,
+            "refuses_to_invent": true
+          }
+        }
+      ]
+    }
+  ]
+}
