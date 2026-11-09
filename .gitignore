@@ -27,10 +27,9 @@ env/
 Thumbs.db
 desktop.ini
 
-# Data (large files - keep in .gitignore, document download instructions)
+# Data (large processed cache is generated; raw zip is tracked)
 data/processed/
 recipes_raw/
-recipes_raw.zip
 
 # Vector store (generated, can be rebuilt)
 vector_store/*.faiss
