@@ -15,6 +15,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import platform
+import asyncio
+
+if platform.system() == "Windows":
+    # Prevent Windows ProactorEventLoop WinError 10054 noise when browser refreshes or closes
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
 import streamlit as st
 
 # --- Page Configuration ---

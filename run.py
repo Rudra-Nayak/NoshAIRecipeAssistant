@@ -9,6 +9,14 @@ Or directly:
 """
 import subprocess
 import sys
+import platform
+import asyncio
+
+if platform.system() == "Windows":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
 
 
 def main():
